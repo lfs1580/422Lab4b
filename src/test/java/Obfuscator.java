@@ -14,6 +14,18 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Collectors;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.time.*;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.LocalDate;
+import java.time.ZonedDateTime;
+
 record BankRecords(Collection<Owner> owners, Collection<Account> accounts, Collection<RegisterEntry> registerEntries) { }
 
 public class Obfuscator {
@@ -23,14 +35,120 @@ public class Obfuscator {
         // TODO: Obfuscate and return the records! Fill these in with your own
         // Example: mask SSN
         List<Owner> newOwners = new ArrayList<>();
+	List<Account> newAccounts = new ArrayList<>();
+	List<RegisterEntry> newRegisters = new ArrayList<>();
+	try{
+	MessageDigest digest = MessageDigest.getInstance("SHA-256");
         for (Owner o : rawObjects.owners()) {
             String new_ssn = "***-**-" + o.ssn().substring(7);
             // other changes...
-            newOwners.add(new Owner(o.name(), o.id(), o.dob(), new_ssn, o.address(), o.address2(), o.city(), o.state(), o.zip()));
+	    // hash name
+	    byte[] hashBytes  = digest.digest(o.name().getBytes(StandardCharsets.UTF_8));
+	    StringBuilder hexString = new StringBuilder();
+	    for(byte b : hashBytes){
+	    	hexString.append(String.format("%02x", b));
+	    }
+	    String hashedName = hexString.toString();
+	    //apply variance to date
+	    Random rand = new Random();
+
+	    int daysVariance = rand.nextInt(11) - 5;
+	    
+
+	    LocalDate localDateStart = o.dob().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+
+	    LocalDate randDate = localDateStart.plusDays(daysVariance);
+	    
+	    LocalDateTime localDateTime =  randDate.atStartOfDay();
+	    ZonedDateTime zonedDT = localDateTime.atZone(ZoneId.systemDefault());
+	    Date newDate = Date.from(zonedDT.toInstant());
+
+
+
+            newOwners.add(new Owner(hashedName, o.id(), newDate, new_ssn, o.address(), o.address2(), o.city(), o.state(), o.zip()));
         }
+
+	//Obfuscate accounts
+	int accountCount =  0;
+	List<Account> accountList = new ArrayList<>(rawObjects.accounts());
+	int accountsNum = accountList.size();
+
+	for(Account a : accountList){
+	    //hash name
+	    byte[] hashBytes  = digest.digest(a.getName().getBytes(StandardCharsets.UTF_8)); 
+	    StringBuilder hexString = new StringBuilder();
+            for(byte b : hashBytes){
+                hexString.append(String.format("%02x", b));
+            }
+ 	    String hashedName = hexString.toString();
+	    //shuffle balances
+	    double newBalance = 0.0;
+	    if(accountCount < accountsNum-1){
+	        newBalance = accountList.get(accountCount+1).getBalance();
+	    }else{
+		newBalance = accountList.get(0).getBalance();
+	    }
+	    accountCount++;
+	    //checks what type of account
+	    Account newAccount;
+	    if(a instanceof SavingsAccount sa){
+	    	newAccount = new SavingsAccount(hashedName, sa.getId(), newBalance, sa.getInterestRate(), sa.getOwnerId());
+	    }else if (a instanceof CheckingAccount ca){
+	    	newAccount = new CheckingAccount(hashedName, ca.getId(), newBalance, 0, ca.getOwnerId());
+	    }else{
+	    	newAccount = null;
+	    }
+
+	    newAccounts.add(newAccount);
+
+	}
+
+	//obfuscate registers
+	List<RegisterEntry> regList = new ArrayList<>(rawObjects.registerEntries());
+	double startAmount = regList.get(0).amount();
+	int entryIndex = 0;
+	int entrySize = regList.size();
+	for(RegisterEntry re : regList){
+	    //obfuscate date
+	    Random rand = new Random();
+  
+            int daysVariance = rand.nextInt(11) - 5;
+            LocalDate localDateStart = re.date().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+  
+            LocalDate randDate = localDateStart.plusDays(daysVariance);
+  
+            LocalDateTime localDateTime =  randDate.atStartOfDay();
+	    ZonedDateTime zonedDT = localDateTime.atZone(ZoneId.systemDefault());
+	    Date newDate = Date.from(zonedDT.toInstant());
+
+	    double newAmount = 0.0;
+	    //shuffles amount
+	    if(entryIndex < entrySize-1){
+	    	newAmount = regList.get(entryIndex+1).amount();
+	    }else{
+	    	newAmount = startAmount;
+	    }
+	    entryIndex++;
+	    
+
+	    //hash name
+	    byte[] hashBytes  = digest.digest(re.entryName().getBytes(StandardCharsets.UTF_8));
+                StringBuilder hexString = new StringBuilder();
+                for(byte b : hashBytes){
+                    hexString.append(String.format("%02x", b));
+                }
+               String hashedName = hexString.toString();
+	   newRegisters.add(new RegisterEntry(re.id(), re.accountId(), hashedName, re.amount(), newDate));
+	}	
+
+
+    	}catch(NoSuchAlgorithmException e){
+	    e.printStackTrace();
+	}
+
         Collection<Owner> obfuscatedOwners = newOwners;
-        Collection<Account> obfuscatedAccounts = rawObjects.accounts();
-        Collection<RegisterEntry> obfuscatedRegisterEntries = rawObjects.registerEntries();
+        Collection<Account> obfuscatedAccounts = newAccounts;
+        Collection<RegisterEntry> obfuscatedRegisterEntries = newRegisters;
 
         return new BankRecords(obfuscatedOwners, obfuscatedAccounts, obfuscatedRegisterEntries);
     }
